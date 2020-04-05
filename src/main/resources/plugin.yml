@@ -1,0 +1,11 @@
+name: BusyEnd
+description: Adds a new depth to the end world with this Slimefun Addon
+version: 1.0
+api-version: 1.14
+author: WalshyDev
+depend: [Slimefun]
+main: dev.walshy.busyend.BusyEnd
+
+commands:
+  test:
+    description: Test
