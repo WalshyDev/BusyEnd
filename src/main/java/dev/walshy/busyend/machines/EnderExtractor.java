@@ -3,9 +3,9 @@ package dev.walshy.busyend.machines;
 import dev.walshy.busyend.BusyEnd;
 import dev.walshy.busyend.Items;
 import dev.walshy.busyend.Utils;
+import dev.walshy.busyend.items.KleinStar;
 import io.github.thebusybiscuit.slimefun4.utils.ChestMenuUtils;
 import me.mrCookieSlime.CSCoreLibPlugin.Configuration.Config;
-import me.mrCookieSlime.Slimefun.Lists.RecipeType;
 import me.mrCookieSlime.Slimefun.Lists.SlimefunItems;
 import me.mrCookieSlime.Slimefun.Objects.SlimefunItem.SlimefunItem;
 import me.mrCookieSlime.Slimefun.Objects.handlers.BlockTicker;
@@ -15,12 +15,15 @@ import me.mrCookieSlime.Slimefun.api.SlimefunItemStack;
 import me.mrCookieSlime.Slimefun.api.inventory.BlockMenu;
 import me.mrCookieSlime.Slimefun.api.inventory.BlockMenuPreset;
 import me.mrCookieSlime.Slimefun.api.item_transport.ItemTransportFlow;
+import me.mrCookieSlime.Slimefun.cscorelib2.data.PersistentDataAPI;
 import me.mrCookieSlime.Slimefun.cscorelib2.item.CustomItem;
 import me.mrCookieSlime.Slimefun.cscorelib2.protection.ProtectableAction;
 import org.bukkit.Bukkit;
+import org.bukkit.ChatColor;
 import org.bukkit.Color;
 import org.bukkit.Location;
 import org.bukkit.Material;
+import org.bukkit.NamespacedKey;
 import org.bukkit.Particle;
 import org.bukkit.World;
 import org.bukkit.block.Block;
@@ -29,11 +32,13 @@ import org.bukkit.entity.Entity;
 import org.bukkit.entity.EntityType;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.metadata.FixedMetadataValue;
 import org.bukkit.util.Vector;
 
 import javax.annotation.Nonnull;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -44,19 +49,22 @@ public class EnderExtractor extends SlimefunItem {
 
     private static final int MAGIC_PRODUCTION = 64;
     private static final int MAGIC_CAPACITY = 4096;
-    private final Set<Long> tasks = new HashSet<>();
+    private static final int MAGIC_OUTPUT = MAGIC_PRODUCTION / 2;
+    private static final int EMPTY_SLOT = 14;
+    private static final int MAGIC_ITEM = 12;
 
-    private byte tickCount;
+    private static final NamespacedKey MAGIC_KEY = new NamespacedKey(BusyEnd.getInstance(), "klein_magic");
+
+    private final Set<Long> tasks = new HashSet<>();
 
     public EnderExtractor() {
         super(
             Items.BUSY_END_CATEGORY,
-            new SlimefunItemStack("END_EXTRACTOR", Material.END_PORTAL_FRAME, "&5End Extractor",
-                "&5Extract power and magic", "from the end realm"),
+            Items.END_EXTRACTOR,
             CursedCraftingTable.CURSED_CRAFTING_RECIPE,
             new ItemStack[] {
                 SlimefunItems.ENDER_LUMP_3, SlimefunItems.RUNE_ENDER, SlimefunItems.ENDER_LUMP_3,
-                SlimefunItems.RUNE_ENDER, SlimefunItems.MAGIC_EYE_OF_ENDER, SlimefunItems.RUNE_ENDER,
+                SlimefunItems.RUNE_ENDER, Items.DRAGON_ESSENCE, SlimefunItems.RUNE_ENDER,
                 SlimefunItems.ENDER_LUMP_3, SlimefunItems.RUNE_ENDER, SlimefunItems.ENDER_LUMP_3,
             }
         );
@@ -64,6 +72,14 @@ public class EnderExtractor extends SlimefunItem {
         setupInterface();
 
         addItemHandler(onTick());
+    }
+
+    @Override
+    public void onPlace(@Nonnull Player p, @Nonnull Block b) {
+        if (!Utils.isEnd(b.getWorld())) {
+            p.sendMessage(ChatColor.GRAY + "The " + ChatColor.DARK_PURPLE + "End Extractor" +
+                ChatColor.GRAY + " can only be used in " + ChatColor.DARK_PURPLE + "The End");
+        }
     }
 
     private void setupInterface() {
@@ -75,8 +91,14 @@ public class EnderExtractor extends SlimefunItem {
                     this.addItem(i, ChestMenuUtils.getBackground(), ChestMenuUtils.getEmptyClickHandler());
                 }
 
-                this.addItem(13, new CustomItem(Material.END_ROD, "&5Magic Extracted",
-                        "&70&8/&5" + MAGIC_CAPACITY + " Magic Essence"), ChestMenuUtils.getEmptyClickHandler());
+                this.addItem(12, new CustomItem(Material.END_ROD, "&5Magic Extracted",
+                    "&70&8/&5" + MAGIC_CAPACITY + " Magic Essence"), ChestMenuUtils.getEmptyClickHandler());
+
+                this.addItem(EMPTY_SLOT, null, (player, i, itemStack, clickAction) -> {
+                    ItemStack is = player.getItemOnCursor();
+                    return (is.getType() != Material.AIR && SlimefunItem.getByItem(is) instanceof KleinStar)
+                        || (itemStack.getType() != Material.AIR);
+                });
             }
 
             @Override
@@ -93,7 +115,7 @@ public class EnderExtractor extends SlimefunItem {
 
             @Override
             public void newInstance(BlockMenu menu, Block b) {
-                updateItem(menu, getMagic(b));
+                updateMagicValue(menu, getMagic(b));
             }
         };
     }
@@ -108,33 +130,59 @@ public class EnderExtractor extends SlimefunItem {
 
             @Override
             public void tick(@Nonnull Block b, @Nonnull SlimefunItem item, @Nonnull Config data) {
-                if (!Bukkit.getAllowEnd()
-                    || !b.getWorld().getUID().equals(Bukkit.getWorlds().get(!Bukkit.getAllowNether() ? 1 : 2).getUID())
-                    || getMagic(b) >= MAGIC_CAPACITY
-                )
+                if (!Utils.isEnd(b.getWorld()))
                     return;
+
+                final BlockMenu menu = BlockStorage.getInventory(b);
+                final ItemStack is = menu.getItemInSlot(EMPTY_SLOT);
+                if (is != null)
+                    powerStar(menu, b, is);
+
+                if (getMagic(b) >= MAGIC_CAPACITY) return;
 
                 // this is currently running my task, don't want it to run that again.
                 if (tasks.contains(Utils.toPos(b.getLocation())))
                     return;
 
-                long ns = System.nanoTime();
-                List<Entity> entities = new ArrayList<>(b.getWorld().getNearbyEntities(b.getLocation(), 40, 5, 40,
-                    ent -> ent.getType() == EntityType.ENDERMAN));
+                // From testing this was sub 1ms at a radius of 40. It averages around 0.05ms-0.1ms
+                // Can optimise more but eh, I'll do it later.
+                Collection<Entity> entities = b.getWorld().getNearbyEntities(b.getLocation(), 20, 5, 20,
+                    ent -> ent.getType() == EntityType.ENDERMAN);
                 if (entities.isEmpty()) return;
-                startupTask(b, (Enderman) entities.get(0));
-                long end = System.nanoTime();
-                System.out.println("Took " + (end - ns) + "ns (" + ((end - ns) * 1e6) + "ms)");
-            }
-
-            @Override
-            public void uniqueTick() {
-                tickCount++;
-
-                if (tickCount == 100)
-                    tickCount = 0;
+                startupTask(b, (Enderman) entities.iterator().next());
             }
         };
+    }
+
+    private void powerStar(@Nonnull BlockMenu menu, @Nonnull Block b, @Nonnull ItemStack is) {
+        final ItemMeta im = is.getItemMeta();
+        final SlimefunItem sfItem = SlimefunItem.getByItem(is);
+        if (sfItem instanceof KleinStar) {
+            final int capacity = ((KleinStar) sfItem).getTier().getCapacity();
+            int currentVal = PersistentDataAPI.getInt(im, MAGIC_KEY, 0);
+
+            if (currentVal >= capacity) return;
+
+            final int magic = getMagic(b);
+
+            if (magic >= MAGIC_OUTPUT) {
+                PersistentDataAPI.setInt(im, MAGIC_KEY, currentVal + MAGIC_OUTPUT);
+                currentVal = Math.min(capacity, currentVal + MAGIC_OUTPUT);
+                List<String> lore = im.getLore();
+                if (lore.size() < 3) return;
+
+                final int itemCapacity = ((KleinStar) sfItem).getTier().getCapacity();
+                lore.set(2, ChatColor.GRAY + Utils.getProgressBar(currentVal, capacity, '-', ':')
+                    + " " + (currentVal >= capacity ? ChatColor.LIGHT_PURPLE + String.valueOf(currentVal)
+                    : ChatColor.GRAY + String.valueOf(currentVal))
+                    + "/" + ChatColor.DARK_PURPLE + itemCapacity + " ME "
+                    + ChatColor.GRAY + "(" + Utils.getPercentage(currentVal, capacity) + ')');
+                im.setLore(lore);
+                is.setItemMeta(im);
+                menu.replaceExistingItem(EMPTY_SLOT, is);
+                updateMagicValue(menu, updateMagic(b, -MAGIC_OUTPUT));
+            }
+        }
     }
 
     private void drawLine(Location point1, Location point2) {
@@ -191,7 +239,7 @@ public class EnderExtractor extends SlimefunItem {
             ), 12, Color.FUCHSIA);
         }
 
-        updateItem(BlockStorage.getInventory(b), updateMagic(b));
+        updateMagicValue(BlockStorage.getInventory(b), updateMagic(b, MAGIC_PRODUCTION));
     }
 
     private void spawnEndParticle(@Nonnull Location loc, int amount, @Nonnull Color color) {
@@ -210,14 +258,14 @@ public class EnderExtractor extends SlimefunItem {
         }
     }
 
-    private int updateMagic(@Nonnull Block b) {
-        final int newAmount = getMagic(b) + MAGIC_PRODUCTION;
+    private int updateMagic(@Nonnull Block b, int amount) {
+        final int newAmount = getMagic(b) + amount;
         BlockStorage.addBlockInfo(b.getLocation(), "magic", String.valueOf(newAmount), true);
         return newAmount;
     }
 
-    private void updateItem(BlockMenu menu, int magic) {
-        menu.replaceExistingItem(13, new CustomItem(Material.END_ROD, "&5Magic Extracted",
+    private void updateMagicValue(BlockMenu menu, int magic) {
+        menu.replaceExistingItem(MAGIC_ITEM, new CustomItem(Material.END_ROD, "&5Magic Extracted",
             (magic >= MAGIC_CAPACITY ? "&5" + magic : "&7" + magic) + "&8/&5" + MAGIC_CAPACITY + " Magic Essence")
         );
     }

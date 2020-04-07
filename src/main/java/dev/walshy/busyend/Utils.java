@@ -1,6 +1,7 @@
 package dev.walshy.busyend;
 
 import org.bukkit.Bukkit;
+import org.bukkit.ChatColor;
 import org.bukkit.Color;
 import org.bukkit.Location;
 import org.bukkit.Particle;
@@ -10,8 +11,11 @@ import org.bukkit.util.Vector;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import javax.annotation.ParametersAreNonnullByDefault;
+import java.text.DecimalFormat;
 
 public final class Utils {
+
+    private static final DecimalFormat df = new DecimalFormat("#.##");
 
     private Utils() {}
 
@@ -46,5 +50,28 @@ public final class Utils {
             p1.add(vector);
             world.spawnParticle(particle, p1.getX(), p1.getY(), p1.getZ(), amount, data);
         }
+    }
+
+    @Nonnull
+    public static String getProgressBar(int x, int max, char filled, char empty) {
+        float percentage = (100f / max * x);
+        return ChatColor.DARK_GRAY + "["
+            + ChatColor.GREEN + repeat(filled, (int) Math.round((double) percentage / 10)) +
+            ChatColor.GRAY + repeat(empty, 10 - (int) Math.round((double) percentage / 10))
+            + ChatColor.DARK_GRAY + ']';
+    }
+
+    public static String getPercentage(int x, int max) {
+        float percentage = (100f / max * x);
+        return df.format(percentage) + '%';
+    }
+
+    private static String repeat(char c, int amnt) {
+        final StringBuilder sb = new StringBuilder();
+        ;
+        for (int i = 0; i < amnt; i++)
+            sb.append(c);
+
+        return sb.toString();
     }
 }

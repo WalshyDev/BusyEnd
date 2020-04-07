@@ -11,6 +11,7 @@ import me.mrCookieSlime.Slimefun.api.Slimefun;
 import me.mrCookieSlime.Slimefun.cscorelib2.inventory.ItemUtils;
 import me.mrCookieSlime.Slimefun.cscorelib2.item.CustomItem;
 import org.bukkit.Bukkit;
+import org.bukkit.ChatColor;
 import org.bukkit.Color;
 import org.bukkit.Location;
 import org.bukkit.Material;
@@ -46,6 +47,12 @@ public class CursedCraftingTable extends MultiBlockMachine {
 
     @Override
     public void onInteract(@Nonnull Player p, @Nonnull Block b) {
+        if (!Utils.isEnd(b.getWorld())) {
+            p.sendMessage(ChatColor.GRAY + "The " + Items.CURSED_CRAFTING_TABLE.getItemMeta().getDisplayName() +
+                ChatColor.GRAY + " can only be used in " + ChatColor.DARK_PURPLE + "The End");
+            return;
+        }
+
         Block dispenser = b.getRelative(BlockFace.DOWN);
         Dispenser disp = (Dispenser) dispenser.getState();
         Inventory inv = disp.getInventory();
